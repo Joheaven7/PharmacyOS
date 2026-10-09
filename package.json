@@ -1,0 +1,21 @@
+{
+  "name": "pharmacy-os",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-oriented pharmacy inventory, POS, purchasing, expiry tracking & business analytics platform.",
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "test:backend": "npm --prefix backend run test",
+    "prisma:generate": "npx prisma generate",
+    "prisma:migrate": "npx prisma migrate dev"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "author": "PharmacyOS Team",
+  "license": "MIT"
+}

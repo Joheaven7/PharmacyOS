@@ -1,0 +1,460 @@
+// PharmacyOS Database Schema
+// Datasource: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum BatchStatus {
+  ACTIVE
+  EXPIRED
+  QUARANTINED
+  DELETED
+}
+
+enum StockMovementType {
+  PURCHASE
+  SALE
+  RETURN
+  DAMAGE
+  EXPIRY
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  TRANSFER_IN
+  TRANSFER_OUT
+}
+
+enum PurchaseStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum SaleStatus {
+  COMPLETED
+  RETURNED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  DIGITAL
+}
+
+enum ReturnCondition {
+  SELLABLE
+  DAMAGED
+  EXPIRED
+  QUARANTINED
+}
+
+enum AlertType {
+  OUT_OF_STOCK
+  LOW_STOCK
+  EXPIRING_SOON
+  EXPIRED
+}
+
+enum AlertSeverity {
+  CRITICAL
+  WARNING
+  INFO
+}
+
+enum AlertStatus {
+  UNRESOLVED
+  RESOLVED
+  DISMISSED
+}
+
+model Organization {
+  id             String          @id @default(uuid())
+  name           String
+  legalName      String?
+  phone          String?
+  email          String?
+  address        String?
+  city           String?
+  country        String?
+  currency       String          @default("USD")
+  timezone       String          @default("UTC")
+  logoUrl        String?
+  settings       Json?           @default("{}")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  users          User[]
+  roles          Role[]
+  categories     Category[]
+  medicines      Medicine[]
+  batches        Batch[]
+  stockMovements StockMovement[]
+  suppliers      Supplier[]
+  purchases      Purchase[]
+  sales          Sale[]
+  saleReturns    SaleReturn[]
+  alerts         Alert[]
+  auditLogs      AuditLog[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String          @id @default(uuid())
+  organizationId String
+  email          String
+  username       String
+  passwordHash   String
+  fullName       String
+  phone          String?
+  status         UserStatus      @default(ACTIVE)
+  lastLoginAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userRoles      UserRole[]
+  stockMovements StockMovement[]
+  purchases      Purchase[]
+  sales          Sale[]
+  saleReturns    SaleReturn[]
+  resolvedAlerts Alert[]
+  auditLogs      AuditLog[]
+
+  @@unique([organizationId, email])
+  @@unique([organizationId, username])
+  @@map("users")
+}
+
+model Role {
+  id             String           @id @default(uuid())
+  organizationId String?
+  name           String
+  code           String
+  description    String?
+  isSystem       Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions    RolePermission[]
+  userRoles      UserRole[]
+
+  @@unique([organizationId, code])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  code        String           @unique
+  module      String
+  description String
+  createdAt   DateTime         @default(now())
+
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model Category {
+  id             String     @id @default(uuid())
+  organizationId String
+  name           String
+  description    String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  medicines      Medicine[]
+
+  @@unique([organizationId, name])
+  @@map("categories")
+}
+
+model Medicine {
+  id             String          @id @default(uuid())
+  organizationId String
+  categoryId     String?
+  name           String
+  genericName    String?
+  brandName      String?
+  strength       String?
+  dosageForm     String?
+  manufacturer   String?
+  barcode        String?
+  sku            String?
+  unit           String          @default("BOX")
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category       Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  batches        Batch[]
+  stockMovements StockMovement[]
+  purchaseItems  PurchaseItem[]
+  saleItems      SaleItem[]
+  returnItems    ReturnItem[]
+  alerts         Alert[]
+
+  @@unique([organizationId, barcode])
+  @@unique([organizationId, sku])
+  @@map("medicines")
+}
+
+model Batch {
+  id             String          @id @default(uuid())
+  organizationId String
+  medicineId     String
+  batchNumber    String
+  expiryDate     DateTime
+  quantity       Int             @default(0)
+  purchasePrice  Float
+  sellingPrice   Float
+  supplierId     String?
+  status         BatchStatus     @default(ACTIVE)
+  receivedAt     DateTime        @default(now())
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  medicine       Medicine        @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  movements      StockMovement[]
+  saleItems      SaleItem[]
+  returnItems    ReturnItem[]
+  alerts         Alert[]
+
+  @@unique([organizationId, medicineId, batchNumber])
+  @@map("batches")
+}
+
+model StockMovement {
+  id             String            @id @default(uuid())
+  organizationId String
+  medicineId     String
+  batchId        String
+  type           StockMovementType
+  quantity       Int
+  referenceType  String?
+  referenceId    String?
+  reason         String?
+  userId         String
+  createdAt      DateTime          @default(now())
+
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  medicine       Medicine          @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  batch          Batch             @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("stock_movements")
+}
+
+model Supplier {
+  id             String     @id @default(uuid())
+  organizationId String
+  name           String
+  contactPerson  String?
+  phone          String?
+  email          String?
+  address        String?
+  notes          String?
+  active         Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  purchases      Purchase[]
+
+  @@unique([organizationId, name])
+  @@map("suppliers")
+}
+
+model Purchase {
+  id             String         @id @default(uuid())
+  organizationId String
+  supplierId     String
+  invoiceNumber  String
+  purchaseDate   DateTime       @default(now())
+  subtotal       Float
+  discount       Float          @default(0)
+  total          Float
+  status         PurchaseStatus @default(COMPLETED)
+  createdById    String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier       Supplier       @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  createdBy      User           @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  items          PurchaseItem[]
+
+  @@unique([organizationId, supplierId, invoiceNumber])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id            String   @id @default(uuid())
+  purchaseId    String
+  medicineId    String
+  batchId       String?
+  batchNumber   String
+  expiryDate    DateTime
+  quantity      Int
+  purchasePrice Float
+  sellingPrice  Float
+  subtotal      Float
+
+  purchase      Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  medicine      Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@map("purchase_items")
+}
+
+model Sale {
+  id             String        @id @default(uuid())
+  organizationId String
+  saleNumber     String
+  cashierId      String
+  status         SaleStatus    @default(COMPLETED)
+  subtotal       Float
+  discount       Float         @default(0)
+  total          Float
+  paymentMethod  PaymentMethod @default(CASH)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  cashier        User          @relation(fields: [cashierId], references: [id], onDelete: Cascade)
+  items          SaleItem[]
+  returns        SaleReturn[]
+
+  @@unique([organizationId, saleNumber])
+  @@map("sales")
+}
+
+model SaleItem {
+  id         String   @id @default(uuid())
+  saleId     String
+  medicineId String
+  batchId    String
+  quantity   Int
+  unitPrice  Float
+  subtotal   Float
+
+  sale       Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  medicine   Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  batch      Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@map("sale_items")
+}
+
+model SaleReturn {
+  id             String       @id @default(uuid())
+  organizationId String
+  saleId         String
+  returnNumber   String
+  cashierId      String
+  totalRefund    Float
+  reason         String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sale           Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  cashier        User         @relation(fields: [cashierId], references: [id], onDelete: Cascade)
+  items          ReturnItem[]
+
+  @@unique([organizationId, returnNumber])
+  @@map("sale_returns")
+}
+
+model ReturnItem {
+  id           String          @id @default(uuid())
+  returnId     String
+  medicineId   String
+  batchId      String
+  quantity     Int
+  refundAmount Float
+  condition    ReturnCondition @default(SELLABLE)
+
+  return       SaleReturn      @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  medicine     Medicine        @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  batch        Batch           @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@map("return_items")
+}
+
+model Alert {
+  id             String        @id @default(uuid())
+  organizationId String
+  type           AlertType
+  severity       AlertSeverity @default(WARNING)
+  medicineId     String?
+  batchId        String?
+  message        String
+  status         AlertStatus   @default(UNRESOLVED)
+  createdAt      DateTime      @default(now())
+  resolvedAt     DateTime?
+  resolvedById   String?
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  medicine       Medicine?     @relation(fields: [medicineId], references: [id], onDelete: SetNull)
+  batch          Batch?        @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  resolvedBy     User?         @relation(fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@map("alerts")
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String?
+  action         String
+  entity         String
+  entityId       String?
+  metadata       Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
